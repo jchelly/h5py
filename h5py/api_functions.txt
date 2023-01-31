@@ -108,6 +108,8 @@ hdf5:
   herr_t    H5Diterate(void *buf, hid_t type_id, hid_t space_id,  H5D_operator_t op, void* operator_data) nogil
   herr_t    H5Dset_extent(hid_t dset_id, hsize_t* size) nogil
 
+  MPI 1.14.0 herr_t H5Dread_multi(size_t count, hid_t *dset_id, hid_t *mem_type_id, hid_t *mem_space_id, hid_t *file_space_id, hid_t dxpl_id, void **buf) nogil
+
   # SWMR functions
   1.9.178   herr_t H5Dflush(hid_t dataset_id) nogil
   1.9.178   herr_t H5Drefresh(hid_t dataset_id) nogil

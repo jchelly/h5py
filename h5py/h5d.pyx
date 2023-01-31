@@ -28,6 +28,7 @@ from ._proxy cimport dset_rw
 from ._objects import phil, with_phil
 from cpython cimport PyObject_GetBuffer, \
                      PyBUF_ANY_CONTIGUOUS, \
+                     PyBUF_WRITABLE, \
                      PyBuffer_Release
 
 
@@ -148,6 +149,84 @@ def open(ObjectID loc not None, char* name, PropID dapl=None):
     If specified, dapl may be a dataset access property list.
     """
     return DatasetID(H5Dopen(loc.id, name, pdefault(dapl)))
+
+if HDF5_VERSION >= (1, 14, 0) and MPI:
+    @with_phil
+    def read_multi(self, datasets, mem_types, mem_spaces, file_spaces, PropID dxpl, buf):
+        """ (datasets, mem_types, mem_spaces, file_spaces, PropID dxpl, buf)
+
+        Read the sequence of datasets given by datasets into the sequence of
+        buffers buf. All arguments other than dxpl are sequences with one
+        element per dataset to read.
+
+        datasets is a sequence of DatasetID specifying the datasets, mem_types
+        is a sequence of TypeID specifying the type of each buffer, mem_spaces
+        is a sequence of SpaceID specifying the dimensions of each buffer,
+        file_spaces is a sequence of SpaceID specifying the dimensions of the
+        dataset in the file and which elements to read, dxpl is the data
+        transfer property list (the same one is used for all datasets) and buf
+        is a sequence of contiguous, writable buffers to read the datasets into
+
+        This is likely to crash python if the memory data type and data spaces
+        are not consistent with the supplied buffers.
+        """
+
+        cdef size_t count
+        cdef hid_t *dset_id = NULL
+        cdef hid_t *mem_type_id = NULL
+        cdef hid_t *mem_space_id = NULL
+        cdef hid_t *file_space_id = NULL
+        cdef hid_t dxpl_id
+        cdef Py_buffer **view = NULL
+
+        try:
+
+            count = len(datasets)
+
+            dset_id = <hid_t*>emalloc(sizeof(hid_t)*count)
+            for i in range(count):
+                dset_id[i] = datasets[i].id
+
+            if len(mem_types) != count:
+                raise ValueError("Number of memory data types not equal to number of datasets")
+            mem_type_id = <hid_t*>emalloc(sizeof(hid_t)*count)
+            for i in range(count):
+                mem_type_id[i] = mem_types[i].id
+
+            if len(mem_spaces) != count:
+                raise ValueError("Number of memory data spaces not equal to number of datasets")
+            mem_space_id = <hid_t*>emalloc(sizeof(hid_t)*count)
+            for i in range(count):
+                mem_space_id[i] = mem_spaces[i].id
+
+            if len(file_spaces) != count:
+                raise ValueError("Number of file data spaces not equal to number of datasets")
+            file_space_id = <hid_t*>emalloc(sizeof(hid_t)*count)
+            for i in range(count):
+                file_space_id[i] = file_spaces[i].id
+            
+            dxpl_id = dxpl.id
+
+            if len(buf) != count:
+                raise ValueError("Number of buffers not equal to number of datasets")
+            view = <Py_buffer **>emalloc(sizeof(Py_buffer *)*count)
+            for i in range(count):
+                PyObject_GetBuffer(buf[i], view[i], PyBUF_ANY_CONTIGUOUS | PyBUF_WRITABLE)
+
+            # TODO: data type workarounds as in DatasetID.read()
+            H5Dread_multi(count, dset_id, mem_type_id, mem_space_id, file_space_id, dxpl_id, <void **> view)
+
+        finally:
+            if dset_id:
+                efree(dset_id)
+            if mem_type_id:
+                efree(mem_type_id)
+            if mem_space_id:
+                efree(mem_space_id)
+            if file_space_id:
+                efree(file_space_id)
+            if view:
+                efree(view)
 
 # --- Proxy functions for safe(r) threading -----------------------------------
 
@@ -694,3 +773,5 @@ cdef class DatasetID(ObjectID):
             H5Dchunk_iter(self.id, pdefault(dxpl), <H5D_chunk_iter_op_t>_cb_chunk_info, <void*>visit)
 
             return visit.retval
+
+            
